@@ -24,6 +24,7 @@ pub fn print(doc: &Document) -> Result<String, Error> {
 /// and write its `tex` representation to a `Writer`.
 pub struct Printer<W> {
     writer: W,
+    uses_align: bool,
 }
 
 impl<W> Printer<W>
@@ -32,7 +33,10 @@ where
 {
     /// Create a new `Printer` which will write to the provided `Writer`.
     pub fn new(writer: W) -> Printer<W> {
-        Printer { writer }
+        Printer {
+            writer,
+            uses_align: false,
+        }
     }
 }
 
@@ -61,6 +65,23 @@ where
                 }
 
                 writeln!(self.writer, r"\end{{document}}")?;
+            }
+        }
+
+        if self.uses_align {
+            // Check if amsmath is already in the preamble.
+            let mut has_amsmath = false;
+            for item in doc.preamble.iter() {
+                if let PreambleElement::UsePackage { package, .. } = item {
+                    if package == "amsmath" {
+                        has_amsmath = true;
+                        break;
+                    }
+                }
+            }
+            // If not, add it.
+            if !has_amsmath {
+                writeln!(self.writer, r"\usepackage{{amsmath}}")?;
             }
         }
         Ok(())
@@ -109,7 +130,7 @@ where
                     name,
                     args_num,
                     default_arg,
-                    definition
+                    definition,
                 } => {
                     write!(self.writer, r"\newcommand{{\{}}}", name)?;
                     if let Some(num) = args_num {
@@ -121,7 +142,7 @@ where
                     writeln!(self.writer, r"{{")?;
                     writeln!(self.writer, "{}", definition)?;
                     writeln!(self.writer, r"}}")?;
-                },
+                }
                 PreambleElement::UserDefined(s) => writeln!(self.writer, r"{}", s)?,
             }
         }
@@ -218,7 +239,10 @@ where
     }
 
     fn visit_align(&mut self, align: &Align) -> Result<(), Error> {
+        self.uses_align = true;
         writeln!(self.writer, r"\begin{{align}}")?;
+        //need to write to preable to usepackage amsmath
+        //writeln!(self.writer, r"\usepackage{{amsmath}}")?;
 
         for item in align.iter() {
             self.visit_equation(item)?;
@@ -354,7 +378,7 @@ mod tests {
         let mut buffer = Vec::new();
         let mut preamble = Preamble::default();
         preamble.new_command("Love", 2, "#1 loves #2");
-        
+
         {
             let mut printer = Printer::new(&mut buffer);
             printer.visit_preamble(&preamble).unwrap();
@@ -371,15 +395,13 @@ mod tests {
 "#;
         let mut buffer = Vec::new();
         let mut preamble = Preamble::default();
-        preamble.push(
-            PreambleElement::NewCommand {
-                name: String::from("Love"),
-                args_num: Some(3),
-                default_arg: Some(String::from("likes")),
-                definition: String::from("#2 #1 #3")
-            }
-        );
-        
+        preamble.push(PreambleElement::NewCommand {
+            name: String::from("Love"),
+            args_num: Some(3),
+            default_arg: Some(String::from("likes")),
+            definition: String::from("#2 #1 #3"),
+        });
+
         {
             let mut printer = Printer::new(&mut buffer);
             printer.visit_preamble(&preamble).unwrap();
